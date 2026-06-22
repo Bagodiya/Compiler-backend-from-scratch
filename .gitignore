@@ -1,0 +1,10 @@
+# local tooling, never published
+CLAUDE.md
+.claude/
+
+# build output
+*.o
+*.out
+a.out
+chapters/*/ch[0-9][0-9]
+.DS_Store

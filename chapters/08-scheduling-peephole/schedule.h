@@ -9,9 +9,11 @@
 // Two passes. The first is instruction scheduling: reorder the instructions in a
 // block so a long-latency operation (a multiply, say) starts early and its result
 // is ready by the time something needs it, instead of stalling the pipeline. I run
-// it *before* register allocation, while every value still has its own virtual
-// register, because that's when the scheduler has the most freedom -- the only
-// edges in its dependence graph are real data dependences. The second is peephole:
+// it as a post-pass over the allocated code, on physical registers, so the register
+// reuse the allocator introduced shows up honestly as anti- and output-dependences
+// the scheduler won't cross. Reorder before allocation instead and you have to redo
+// liveness on the new order, or the code quietly computes garbage -- see the note on
+// the scheduling pass below for the bug that taught me this. The second is peephole:
 // a sliding window over the final stream that rewrites patterns the earlier stages
 // don't bother to avoid, like the self-moves chapter 7 pointed at.
 //
@@ -621,13 +623,16 @@ inline void applyColoring(MFunction &mf, const Values &V, const Coloring &C,
 }
 
 // --- instruction scheduling (new) ----------------------------------------
-// I run this on the machine code while it still uses virtual registers -- one
-// name per value -- so the only edges in the dependence graph are genuine data
-// dependences. Once physical registers are handed out, disjoint values get
-// forced onto the same register and that reuse shows up as extra anti- and
-// output-dependences that pin instructions in place. Scheduling first keeps the
-// scheduler's hands free; the allocator runs after (and doesn't care what order
-// the instructions ended up in, since it rewrites by value name).
+// I run this as a post-pass on the allocated code, over physical registers. The
+// freest place to schedule is before allocation, when every value still has its own
+// register and the only edges are real data dependences -- but reorder there and the
+// allocator, which computes liveness from the (still unscheduled) IR, colors the
+// wrong live ranges and the code quietly computes garbage. I got that wrong the
+// first time: a multiply hoisted over an add that shared its register clobbered a
+// value the add still needed. Scheduling after keeps the pass honest -- the reuse
+// the allocator introduced shows up as extra anti- and output-dependences, and
+// refusing to cross them is what keeps the reorder legal. The cost is less freedom,
+// which is the classic tension between these two passes.
 //
 // A dependence edge i -> j (i earlier) exists when the two instructions touch a
 // common location the wrong way round: j reads what i writes (true/RAW), j writes
